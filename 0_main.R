@@ -24,7 +24,6 @@ df <- loadE4CsvToDB(
 )
 
 
-con <- 
 # gets all mission day folders
 list.dirs(
   '/Users/mrosen44/Johns\ Hopkins\ University/Salar\ Khaleghzadegan\ -\ Project_NASA/HERA/Campaign\ 5/Mission\ 1/E4\ Data\ for\ HERA\ C5M1',
