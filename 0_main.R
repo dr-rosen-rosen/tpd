@@ -10,18 +10,17 @@
 library(tidyverse)
 library(config)
 config <- config::get()
-
 source('1_funcs.R')
 
 a <- "/Users/mrosen44/Johns Hopkins University/Salar Khaleghzadegan - Project_NASA/HERA/Campaign 5/Mission 1/E4 Data for HERA C5M1/MD-1/1550323404_A01435/EDA.csv"
 df <- loadE4CsvToDB(
   fPath = a,
   con = DBI::dbConnect(RPostgres::Postgres(),
-                       dbname   = config$dbname, #'e4_hera',
+                       dbname   = config$dbname, 
                        host     = 'localhost',
                        port     = 5433,
-                       user     = config$dbUser,#'script_monkey',
-                       password = config$dbPw)#'cocobolo32'
+                       user     = config$dbUser,
+                       password = config$dbPw)
 )
 
 
