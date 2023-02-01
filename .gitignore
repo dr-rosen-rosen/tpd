@@ -13,6 +13,10 @@ config.yml
 # Example code in package build process
 *-Ex.R
 
+# Randos
+**/.DS_Store
+data/
+
 # Output files from R CMD build
 /*.tar.gz
 

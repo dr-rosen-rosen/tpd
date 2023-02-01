@@ -97,7 +97,7 @@ pre_db_tasks_and_metrics(
   con = DBI::dbConnect(RPostgres::Postgres(),
                        dbname   = config$dbname, 
                        host     = 'localhost',
-                       port     = 5433,
+                       port     = config$dbport,
                        user     = config$dbUser,
                        password = config$dbPw)
 )
