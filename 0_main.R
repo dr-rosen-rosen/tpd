@@ -9,6 +9,10 @@
 
 library(tidyverse)
 library(config)
+library(here)
+library(janitor)
+library(lubridate)
+library(foreach)
 config <- config::get()
 source('1_funcs.R')
 
@@ -37,4 +41,20 @@ list.files(
   pattern = ".csv",
   full.names = TRUE)
 
+
+tasks_df <- get_task_lists(
+    data_dir = 'data'
+) 
+
+  
+
+pre_db_tasks_and_metrics(
+  tasks_df = tasks_df,
+  con = DBI::dbConnect(RPostgres::Postgres(),
+                       dbname   = config$dbname, 
+                       host     = 'localhost',
+                       port     = 5433,
+                       user     = config$dbUser,
+                       password = config$dbPw)
+)
 
