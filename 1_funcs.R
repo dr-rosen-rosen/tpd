@@ -308,34 +308,22 @@ get_synchronies <- function(task_list, measure, offset, con) {
       # create tpd measures
       print(head(e4_df))
       syncMatrix <- make_sync_matrix_sfly(e4_df, offset, measure)
-      sync_df <- get_sync_metrics(syncMatrix)
+      sync_df <- get_sync_metrics_sfly(syncMatrix)
       sync_df <- sync_df %>%
         mutate(
           task_num = r$task_num,
           physio_signal = measure,
           offset_secs = offset
         )
-      # test if there's valid data
-      
-      # write to DB... would need to iterate something like the below; 
-      
-        # write_stmt <- paste(
-        #   paste0("UPDATE team_comp_metrics",borg_table_suffix),
-        #   "SET team_size =",paste0(t_size,','),
-        #   paste0("zeta_",shared_work_experience_window_weeks," = ",zeta,','),
-        #   paste0("zeta_prime_",shared_work_experience_window_weeks," = ",zeta_prime),
-        #   "WHERE LOG_ID =",paste0(LOG_ID,';'))
-        # wrt <- dbSendQuery(con,write_stmt)
-        # dbClearResult(wrt)
-      
-      # NULL
-      # return(e4_df)
-      return(sync_df)
+      if (nrow(sync_df > 0)) {
+        DBI::dbAppendTable(con, 'sync_metrics',sync_df)
+      }
+      NULL
     }
 }
 
 test <- get_synchronies(
-  task_list = tasks_df[which(tasks_df$task_num == 239),],
+  task_list = tasks_df[which(tasks_df$task_num <= 5),],
   measure = 'hr',
   offset = 50,
   con = con)
@@ -359,30 +347,3 @@ test <- get_synchronies(
 # 
 # ccf(residuals(test3),residuals(test2),lag.max = 50)
 # ar(test$fe)
-# 
-# 
-# 
-#   
-#   e4_ids <- unique(shift_df$e4_id)
-#   shift_date <- unique(shift_df$date)[1] # should add a check to make sure they are all the same
-#   lubridate::tz(shift_date) <- "America/New_york" # changing to EDT; E4 data is in ETC... need to check that daylight savings is handled correctly
-#   am_or_pm <- unique(shift_df$am_or_pm)[1] # should add a check to make sure they are all the same
-#   if (am_or_pm == 'am') {
-#     lubridate::hour(shift_date) <- 7
-#   } else if (am_or_pm == 'pm') {
-#     lubridate::hour(shift_date) <- 19
-#   }
-#   #measure <- "HR" # need to pass this in as an argument
-#   e4_data <- pull_e4_data(
-#     e4_ids = e4_ids,
-#     shift_start = shift_date,
-#     measure = measure,
-#     e4_to_part_id = split(shift_df$study_member_id, shift_df$e4_id)
-#   )
-#   print(nrow(e4_data))
-#   
-#   # make_sync_matrix()
-#   # make_sync_metrics()
-#   # how to return results in tibble?
-#   return(e4_data)
-# }

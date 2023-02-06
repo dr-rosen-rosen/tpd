@@ -15,7 +15,8 @@ cl <- makeCluster(6, outfile="")
 clusterExport(cl=cl, varlist = c(
   
   # functions to export
-  'create_ACC_energy_metric_sfly', 'pull_e4_data', 'make_sync_matrix'
+  'create_ACC_energy_metric_sfly', 'pull_e4_data_sfly', 'make_sync_matrix_sfly',
+  'get_sync_metrics_sfly'
   # variables to export
   
   )
@@ -23,22 +24,24 @@ clusterExport(cl=cl, varlist = c(
 clusterEvalQ(cl, {
   library(magrittr)
   library(tidyverse)
-  # library(dplyr)
-  # library(dbplyr)
+  library(matlib)
   library(DBI)
-  #con <- DBI::dbConnect(RSQLite::SQLite(), 'OR_data.db')
   con <- DBI::dbConnect(RPostgres::Postgres(),
-                        dbname   = 'OR_DB',
+                        dbname   = 'e4_hera',#config$dbname, 
                         host     = 'localhost',
-                        port     = 5432,
-                        user     = 'postgres',
-                        password = 'LetMeIn21')
+                        port     = 5433,#config$dbPort,
+                        user     = 'script_monkey',#config$dbUser,
+                        password = 'cocobolo32'#config$dbPw
+                        )
   NULL
 })
 registerDoParallel(cl)
 getDoParWorkers()
 
-# dyad_izer_par_db( #cmbd_dyad_borg_par_db(#dyad_izer_par_db( #borgattizer_par_db(
-#   df = fam_df
-# )
+get_synchronies(
+  task_list = tasks_df[which(tasks_df$task_num <= 5),],
+  measure = 'hr',
+  offset = 50,
+  con = con)
+
 parallel::stopCluster(cl)
