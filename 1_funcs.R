@@ -6,6 +6,7 @@
 ##############################################################################
 ##############################################################################
 library(tidyverse)
+library(matlib)
 
 ##############
 ##############  Database scripts
@@ -31,10 +32,10 @@ loadE4CsvToDB <- function(fPath, con) {
   if (measure %in% ftype1) {
     # Get the starting timestamp and sampling frequency
     if (measure == 'ACC') {
-      start <- lubridate::as_datetime(read.csv(fPath, nrows=1, skip=0,header = FALSE)[[1,1]])
+      start <- lubridate::as_datetime(read.csv(fPath, nrows=1, skip=0,header = FALSE)[[1,1]], tz = 'UTC')
       hz <- read.csv(fPath, nrows=1, skip=1,header = FALSE)[[1,1]]
     } else {
-      start <- lubridate::as_datetime(read.csv(fPath, nrows=1, skip=0,header = FALSE)[[1]])
+      start <- lubridate::as_datetime(read.csv(fPath, nrows=1, skip=0,header = FALSE)[[1]], tz = 'UTC')
       hz <- read.csv(fPath, nrows=1, skip=1,header = FALSE)[[1]]
     }
     # Read in the rest of the data
@@ -63,7 +64,6 @@ loadE4CsvToDB <- function(fPath, con) {
   return(t)
 }
 
-
 pre_db_tasks_and_metrics <- function(tasks_df, con, overwrite) {
   
   sync_df <- data.frame(
@@ -89,6 +89,7 @@ pre_db_tasks_and_metrics <- function(tasks_df, con, overwrite) {
   }
   
 }
+
 ##############
 ##############  File processing
 ##############
@@ -99,9 +100,8 @@ get_task_lists <- function(data_dir) {
   
   
   # make timezones and deal with timestamps
-  tl_df$start_time <- as.POSIXct(tl_df$start_time, format = "%m/%d/%Y %H:%M", tz = "America/New_York") 
-  tl_df$start_time <- tl_df$start_time + lubridate::hours(1)
-  tl_df$start_time <- lubridate::with_tz(tl_df$start_time, tzone = 'UTC') 
+  tl_df$start_time <- as.POSIXct(tl_df$start_time, format = "%m/%d/%Y %H:%M", tz = "America/Chicago") 
+  tl_df$start_time <- lubridate::with_tz(tl_df$start_time, tzone = 'UTC')
   
   # create duration column
   tl_df <- tl_df %>% separate(duration, c('hour','min')) %>%
@@ -120,15 +120,24 @@ get_task_lists <- function(data_dir) {
     mutate(
         task_category = dplyr::case_match(activity_name,
           c("Dinner","Lunch") ~ 'social',
-          c("MMSEV-EVA","Project RED and Survey (Multiteam Task)") ~ "team_action",
+          c("MMSEV-EVA","Project RED and Survey (Multiteam Task)",
+            'MMSEV', 'Project RED and Survey (FUSION)') ~ "team_action",
           "Rover" ~ "dyad_action",
-          c("Morning DPC","Evening DPC") ~ "team_transition",
+          c("Morning DPC","Evening DPC", "Morning DPC (Voice or Text)", 'Morning DPC (text)') ~ "team_transition",
           .default = 'none'
         ),
         task_num = seq(from=1, to=nrow(tl_df),by=1)
-    ) %>%
-    mutate(across(c(cdr,fe,ms1,ms2)), na_if, "M")
+    ) 
   
+  tl_df[which(tl_df$cdr == 'M'),'cdr'] <- "NA"
+  tl_df[which(tl_df$fe == 'M'),'fe'] <- "NA"
+  tl_df[which(tl_df$ms1 == 'M'),'ms1'] <- "NA"
+  tl_df[which(tl_df$ms2 == 'M'),'ms2'] <- "NA"
+  
+  tl_df[grepl("starts|; |NEDA|NBVP|:",tl_df$cdr),'cdr'] <- "NA"
+  tl_df[grepl("starts|; |NEDA|NBVP|:",tl_df$fe),'fe'] <- "NA"
+  tl_df[grepl("starts|; |NEDA|NBVP|:",tl_df$ms1),'ms1'] <- "NA"
+  tl_df[grepl("starts|; |NEDA|NBVP|:",tl_df$ms2),'ms2'] <- "NA"
   
   return(tl_df)
 }
@@ -141,7 +150,10 @@ get_task_lists <- function(data_dir) {
 #####################     for time reasons; abandoning this for now.
 #####################     This will be helpful when we have time (and are not using sqlite anymore)
 ###############################################################################################
+
 create_ACC_energy_metric <- function(one_e4) {
+  # consider 10.1371/journal.pone.0160644
+  # convert x, y , z to energy metric
   dimensions = c('x', 'y', 'z')
   print('here')
   for (dimension in dimensions) {
@@ -156,99 +168,157 @@ create_ACC_energy_metric <- function(one_e4) {
 
 create_ACC_energy_metric_sfly <- purrr::possibly(.f = create_ACC_energy_metric, otherwise = NULL)
 
-pull_e4_data <- function(e4_ids, shift_start, measure,e4_to_part_id) {
-  print(e4_to_part_id)
-  shift_stop <- shift_start + lubridate::hours(12)
-  print(shift_start)
-  print(shift_stop)
+pull_e4_data <- function(r, measure,con) {
   df_list = list()
   all_e4_data <- TRUE
-  for (e4 in e4_ids) {
-    ### pulls data for given badge within shift range
-    
-    t_name <- paste0('Table_',e4,'_',measure)
-    ### built this as temporary work around to issues directly filtering timestamp data in sqlite from R
-    one_e4 <- pull_e4_data_py(
-      # db is hard coded in script for now, since this is temporary fix.
-      t_name = t_name,
-      shift_start = shift_start,
-      shift_stop = shift_stop
-    )
-    ### This SHOULD be easy to do in R, but dbplyr does not play well with sqlite for timestamps
-    ### Using python script w/sqlalchemy as temporary fix until we migrat to better db solution
-    # one_e4 <- tbl(e4_con, t_name) %>%
-    #   #filter(TimeStamp >= shift_start & TimeStamp <= shift_stop) %>%
-    #   collect()
-    # one_e4 <- one_e4 %>%
-    #   filter(TimeStamp >= shift_start & TimeStamp <= shift_stop)
-    
-    ### does minimal data QC... this needs exapnding
-    if (nrow(one_e4) > 0) { # checks if anything is in the data, and adds to list if there is
-      print('... has data!')
+  role_e4_list <- r %>% select(c(cdr,fe,ms1,ms2)) %>% as.list(.)
+  # start_time <- lubridate::with_tz(r$start_time, tzone = 'America/Chicago')
+  end_time <- start_time + lubridate::minutes(r$duration_min)
+  print(start_time)
+  # print(role_e4_list)
+  # print(names(role_e4_list))
+  # print(role_e4_list)
+  
+  for (role in names(role_e4_list)) {
+    print(role)
+    print(role_e4_list[[role]])
+    # print(role_e4_list[[role]] != "NA")
+    # print(role_e4_list[[role]])
+    # print(!is.na(role_e4_list[[role]]))
+    # print(role_e4_list[[role]])
+    if (role_e4_list[[role]] != "NA") {
+      t <- dplyr::tbl(con,paste0(tolower(role_e4_list[[role]]),'_',measure))
+      print('here')
+      one_e4 <- t %>%
+        dplyr::filter(time_stamp >= start_time , time_stamp <= end_time) %>%
+        dplyr::collect()
       print(nrow(one_e4))
-      ### Need to add metric conversion for ACC (go from 3 cols to 'energy metric')
-      # sets col name to part_id; This is done to track who is who once they are integrated
-      # need to expand this to other measures with named list of measure / metrics
-      if (measure == 'HR'){
-        colnames(one_e4)[which(names(one_e4) == "AvgHR")] <- e4_to_part_id[[e4]]
-      } else if (measure == 'EDA') {
-        colnames(one_e4)[which(names(one_e4) == "MicroS")] <- e4_to_part_id[[e4]]
-      } else if (measure == 'ACC') {
-        one_e4 <- create_ACC_energy_metric_r(one_e4)
-        colnames(one_e4)[which(names(one_e4) == "energy")] <- e4_to_part_id[[e4]]
+      if (nrow(one_e4) > 0) { # checks if anything is in the data, and adds to list if there is
+        print('... has data!')
+        print(nrow(one_e4))
+        ### Need to add metric conversion for ACC (go from 3 cols to 'energy metric')
+        # sets col name to part_id; This is done to track who is who once they are integrated
+        # need to expand this to other measures with named list of measure / metrics
+        if (measure == 'hr'){
+          colnames(one_e4)[which(names(one_e4) == "avg_hr")] <- role
+        } else if (measure == 'eda') {
+          colnames(one_e4)[which(names(one_e4) == "micro_s")] <- role
+        } else if (measure == 'acc') {
+          one_e4 <- create_ACC_energy_metric_sfly(one_e4)
+          colnames(one_e4)[which(names(one_e4) == "energy")] <- role
+        } 
+        df_list[[role]] <- one_e4
+      } else {
+        print('... has NO data!')
+        all_e4_data <- FALSE
       }
-      df_list[[e4]] <- one_e4
-    } else {
-      print('... has NO data!')
-      all_e4_data <- FALSE
-    }
-  }
+    } # end of !is.na(role)
+  } # end of for role in roles loop
   if (all_e4_data == TRUE) {
-    all_data <- df_list %>% purrr::reduce(full_join, by = "TimeStamp")
-    all_data$TimeStamp <- lubridate::as_datetime(all_data$TimeStamp)
-    all_data$TimeStamp <- lubridate::force_tz(all_data$TimeStamp, "America/New_York") # timestamps were coming back with Batlimore Times, but marked as UTC timezone; this fixes
+    all_data <- df_list %>% purrr::reduce(full_join, by = "time_stamp")
     print(paste('All data this big... ',ncol(all_data),' by ',nrow(all_data)))
     return(all_data)
   } else {
     return('WHOOOPS')
-  }
+    }
 }
+
 pull_e4_data_sfly <- purrr::possibly(.f = pull_e4_data, otherwise = NULL)
 
-make_sync_matrix <- function(e4_data){
+make_sync_matrix <- function(e4_df, offset, measure){
   ### define datastructures for making and storing coef_matrix
-  print(typeof(e4_data))
-  working_roles <- colnames(e4_data)
-  print(working_roles)
-  print(typeof(working_roles))
-  working_roles <- working_roles %>% purrr::list_modify("TimeStamp" = NULL)
-  print(working_roles)
-  Sync_Coefs <- data.frame(matrix(ncol=length(working_roles),nrow=length(working_roles), dimnames=list(working_roles, working_roles)))
+  print('HERE')
+  print(head(e4_df))
+  workingRoles <- colnames(e4_df)
+  workingRoles <- workingRoles[workingRoles!="time_stamp"]
+  syncCoefs <- data.frame(matrix(ncol=length(workingRoles),nrow=length(workingRoles), dimnames=list(workingRoles, workingRoles)))
+  print(workingRoles)
   ### format and clean timeseries
-  time_lag <- 50
-  ### Creates Table 1 in Guastello and Perisini
-  for (from_role in working_roles){
-    print(from_role)
-    role_acf <- e4_data %>% select(from_role) %>% drop_na() %>% acf(plot = FALSE)
-    Sync_Coefs[[from_role,from_role]] <- role_acf$acf[time_lag]
+  
+  # resample to one second; HR is already at one second.
+  if (measure != 'hr') {
+    print('upsampling...')
+    e4_df <- e4_df %>%
+      mutate(time_stamp = floor_date(time_stamp, unit = "seconds")) %>% 
+      group_by(time_stamp) %>%
+      summarise(across(everything(), .fns = mean))
   }
-  return(Sync_Coefs)
+  
+  ### Creates diagonal (ARs) in Table 1 in Guastello and Perisini; and saves timeseris residuals with AR removed
+  for (fromRole in workingRoles){
+    print(fromRole)
+    role_acf <- e4_df[,fromRole] %>% drop_na() %>% acf(plot = FALSE, lag.max = offset)
+    print('done acf')
+    print(role_acf$acf[offset])
+    syncCoefs[[fromRole,fromRole]] <- role_acf$acf[offset]
+    print('stored acf')
+    role_arima <- arima(e4_df[,fromRole], order = c(1,0,0), optim.control = list(maxit = 4000), method="ML")
+    print('done arima')
+    # syncCoefs[[fromRole,fromRole]] <- role_arima$coef[['ar1']]
+    e4_df[,fromRole] <- residuals(role_arima)
+  }
+  ### Fills in rest of the Table 1 matrix using residual timeseries
+  for (fromRole in workingRoles){
+    toRoles <- workingRoles[workingRoles != fromRole]
+    for (toRole in toRoles) {
+      print(paste('toRole:',(toRole)))
+      syncCoefs[[fromRole,toRole]] <- ccf(e4_df[,toRole], e4_df[,fromRole], plot = FALSE, lag.max = offset)$acf[offset]
+    }
+  }
+  return(syncCoefs)
 }
 
 make_sync_matrix_sfly <- purrr::possibly(.f = make_sync_matrix, otherwise = NULL)
 
-get_synchronies <- function(task_list, measure, offset) {
+get_sync_metrics <- function(syncMatrix) {
+  
+  syncMatrix_sq <- syncMatrix^2
+  syncMatrix$driver <- rowSums(syncMatrix_sq)
+  empath_scores <- colSums(syncMatrix_sq)
+  empath <- names(empath_scores[which.max(empath_scores)])
+  # # save empath and driver scores
+  driver_scores <- syncMatrix %>% select(driver) %>% rownames_to_column("team_or_role_id")
+  data_to_update <- rownames_to_column(as.data.frame(empath_scores), "team_or_role_id") %>% 
+    right_join(driver_scores, by = "team_or_role_id") %>%
+    pivot_longer(!team_or_role_id, names_to = "s_metric_type", values_to = "synch_coef")
+  print(data_to_update)
+  # # make overall Se
+  if (nrow(syncMatrix) > 2) {
+    v_prime <- as.vector(syncMatrix[which(rownames(syncMatrix) != empath),empath])
+    M <- syncMatrix[which(rownames(syncMatrix) != empath), which(colnames(syncMatrix) != empath)] %>% select(-c(driver))
+    Q <- matlib::inv(as.matrix(M)) %*% v_prime
+    s_e<- v_prime%*%Q
+    newRow <- c(
+      'team_or_role_id' = 'team',
+      's_metric_type' = 's_e',
+      'synch_coef' = s_e)
+    data_to_update <- data_to_update %>% rbind(newRow)
+    }
+  return(data_to_update)
+}
+
+get_sync_metrics_sfly <- purrr::possibly(.f = get_sync_metrics, otherwise = NULL)
+
+get_synchronies <- function(task_list, measure, offset, con) {
   foreach::foreach(
     r = iterators::iter(task_list, by = 'row'),
-    .combine = rbind, .noexport = 'con') %dopar% {
+    .combine = rbind, .noexport = 'con') %do% {
       # get E4 data
-      # pull_e4_data_sfly
-      
+      e4_df <- pull_e4_data_sfly(r, measure, con)
       # create tpd measures
-      # make_sync_matrix
-      
+      print(head(e4_df))
+      syncMatrix <- make_sync_matrix_sfly(e4_df, offset, measure)
+      sync_df <- get_sync_metrics(syncMatrix)
+      sync_df <- sync_df %>%
+        mutate(
+          task_num = r$task_num,
+          physio_signal = measure,
+          offset_secs = offset
+        )
       # test if there's valid data
+      
       # write to DB... would need to iterate something like the below; 
+      
         # write_stmt <- paste(
         #   paste0("UPDATE team_comp_metrics",borg_table_suffix),
         #   "SET team_size =",paste0(t_size,','),
@@ -258,31 +328,61 @@ get_synchronies <- function(task_list, measure, offset) {
         # wrt <- dbSendQuery(con,write_stmt)
         # dbClearResult(wrt)
       
-      NULL
+      # NULL
+      # return(e4_df)
+      return(sync_df)
     }
 }
 
-  
-  e4_ids <- unique(shift_df$e4_id)
-  shift_date <- unique(shift_df$date)[1] # should add a check to make sure they are all the same
-  lubridate::tz(shift_date) <- "America/New_york" # changing to EDT; E4 data is in ETC... need to check that daylight savings is handled correctly
-  am_or_pm <- unique(shift_df$am_or_pm)[1] # should add a check to make sure they are all the same
-  if (am_or_pm == 'am') {
-    lubridate::hour(shift_date) <- 7
-  } else if (am_or_pm == 'pm') {
-    lubridate::hour(shift_date) <- 19
-  }
-  #measure <- "HR" # need to pass this in as an argument
-  e4_data <- pull_e4_data(
-    e4_ids = e4_ids,
-    shift_start = shift_date,
-    measure = measure,
-    e4_to_part_id = split(shift_df$study_member_id, shift_df$e4_id)
-  )
-  print(nrow(e4_data))
-  
-  # make_sync_matrix()
-  # make_sync_metrics()
-  # how to return results in tibble?
-  return(e4_data)
-}
+test <- get_synchronies(
+  task_list = tasks_df[which(tasks_df$task_num == 239),],
+  measure = 'hr',
+  offset = 50,
+  con = con)
+
+
+# head(test)
+# offset <- 50
+# test1 <- acf(test[,'ms2'],plot = FALSE,lag.max = 50)
+# test1$acf[offset]
+# 
+# test2 <- arima(test$cdr, order = c(1,0,0), method="ML")
+# test2$coef[['ar1']]
+# residuals(test2)
+# 
+# test3 <- arima(test$fe, order = c(1,0,0), method = 'ML')
+# 
+# ccf(test$cdr,test$fe,lag.max = 50, plot = FALSE)$acf[50]
+# ccf(test$cdr,residuals(test2),lag.max = 50, plot = FALSE)$acf[50]
+# x <- ccf(residuals(test3),residuals(test2),lag.max = 50, plot = FALSE)
+# x$acf[50]
+# 
+# ccf(residuals(test3),residuals(test2),lag.max = 50)
+# ar(test$fe)
+# 
+# 
+# 
+#   
+#   e4_ids <- unique(shift_df$e4_id)
+#   shift_date <- unique(shift_df$date)[1] # should add a check to make sure they are all the same
+#   lubridate::tz(shift_date) <- "America/New_york" # changing to EDT; E4 data is in ETC... need to check that daylight savings is handled correctly
+#   am_or_pm <- unique(shift_df$am_or_pm)[1] # should add a check to make sure they are all the same
+#   if (am_or_pm == 'am') {
+#     lubridate::hour(shift_date) <- 7
+#   } else if (am_or_pm == 'pm') {
+#     lubridate::hour(shift_date) <- 19
+#   }
+#   #measure <- "HR" # need to pass this in as an argument
+#   e4_data <- pull_e4_data(
+#     e4_ids = e4_ids,
+#     shift_start = shift_date,
+#     measure = measure,
+#     e4_to_part_id = split(shift_df$study_member_id, shift_df$e4_id)
+#   )
+#   print(nrow(e4_data))
+#   
+#   # make_sync_matrix()
+#   # make_sync_metrics()
+#   # how to return results in tibble?
+#   return(e4_data)
+# }
