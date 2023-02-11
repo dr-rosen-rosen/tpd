@@ -172,30 +172,19 @@ pull_e4_data <- function(r, measure,con) {
   df_list = list()
   all_e4_data <- TRUE
   role_e4_list <- r %>% select(c(cdr,fe,ms1,ms2)) %>% as.list(.)
-  # start_time <- lubridate::with_tz(r$start_time, tzone = 'America/Chicago')
+  start_time <- r$start_time #lubridate::with_tz(r$start_time, tzone = 'America/Chicago')
   end_time <- start_time + lubridate::minutes(r$duration_min)
-  print(start_time)
-  # print(role_e4_list)
-  # print(names(role_e4_list))
-  # print(role_e4_list)
   
   for (role in names(role_e4_list)) {
-    print(role)
-    print(role_e4_list[[role]])
-    # print(role_e4_list[[role]] != "NA")
-    # print(role_e4_list[[role]])
-    # print(!is.na(role_e4_list[[role]]))
-    # print(role_e4_list[[role]])
+
     if (role_e4_list[[role]] != "NA") {
       t <- dplyr::tbl(con,paste0(tolower(role_e4_list[[role]]),'_',measure))
-      print('here')
       one_e4 <- t %>%
         dplyr::filter(time_stamp >= start_time , time_stamp <= end_time) %>%
         dplyr::collect()
       print(nrow(one_e4))
       if (nrow(one_e4) > 0) { # checks if anything is in the data, and adds to list if there is
         print('... has data!')
-        print(nrow(one_e4))
         ### Need to add metric conversion for ACC (go from 3 cols to 'energy metric')
         # sets col name to part_id; This is done to track who is who once they are integrated
         # need to expand this to other measures with named list of measure / metrics
@@ -227,12 +216,12 @@ pull_e4_data_sfly <- purrr::possibly(.f = pull_e4_data, otherwise = NULL)
 
 make_sync_matrix <- function(e4_df, offset, measure){
   ### define datastructures for making and storing coef_matrix
-  print('HERE')
-  print(head(e4_df))
+  #print('Make sync matrix')
+  #print(head(e4_df))
   workingRoles <- colnames(e4_df)
   workingRoles <- workingRoles[workingRoles!="time_stamp"]
   syncCoefs <- data.frame(matrix(ncol=length(workingRoles),nrow=length(workingRoles), dimnames=list(workingRoles, workingRoles)))
-  print(workingRoles)
+  #print(workingRoles)
   ### format and clean timeseries
   
   # resample to one second; HR is already at one second.
@@ -246,7 +235,7 @@ make_sync_matrix <- function(e4_df, offset, measure){
   
   ### Creates diagonal (ARs) in Table 1 in Guastello and Perisini; and saves timeseris residuals with AR removed
   for (fromRole in workingRoles){
-    print(fromRole)
+    #print(fromRole)
     role_acf <- e4_df[,fromRole] %>% drop_na() %>% acf(plot = FALSE, lag.max = offset)
     print('done acf')
     print(role_acf$acf[offset])
@@ -261,7 +250,7 @@ make_sync_matrix <- function(e4_df, offset, measure){
   for (fromRole in workingRoles){
     toRoles <- workingRoles[workingRoles != fromRole]
     for (toRole in toRoles) {
-      print(paste('toRole:',(toRole)))
+      #print(paste('toRole:',(toRole)))
       syncCoefs[[fromRole,toRole]] <- ccf(e4_df[,toRole], e4_df[,fromRole], plot = FALSE, lag.max = offset)$acf[offset]
     }
   }
@@ -281,7 +270,7 @@ get_sync_metrics <- function(syncMatrix) {
   data_to_update <- rownames_to_column(as.data.frame(empath_scores), "team_or_role_id") %>% 
     right_join(driver_scores, by = "team_or_role_id") %>%
     pivot_longer(!team_or_role_id, names_to = "s_metric_type", values_to = "synch_coef")
-  print(data_to_update)
+  # print(data_to_update)
   # # make overall Se
   if (nrow(syncMatrix) > 2) {
     v_prime <- as.vector(syncMatrix[which(rownames(syncMatrix) != empath),empath])
@@ -304,6 +293,7 @@ get_synchronies <- function(task_list, measure, offset, con) {
     r = iterators::iter(task_list, by = 'row'),
     .combine = rbind, .noexport = 'con') %do% {
       # get E4 data
+      print(paste('Starting task num:',r$task_num))
       e4_df <- pull_e4_data_sfly(r, measure, con)
       # create tpd measures
       print(head(e4_df))
@@ -322,11 +312,6 @@ get_synchronies <- function(task_list, measure, offset, con) {
     }
 }
 
-test <- get_synchronies(
-  task_list = tasks_df[which(tasks_df$task_num <= 5),],
-  measure = 'hr',
-  offset = 50,
-  con = con)
 
 
 # head(test)
