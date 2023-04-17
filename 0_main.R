@@ -25,37 +25,38 @@ source('1_funcs_picu.R')
 # reticulate::source_python('1_funcs.py')
 
 # for each mission day, gets all the E4 csv files (for all badges and all variables)
-#' mission_files <- list.files(
-#'   c(
-#'     # 'D:\\HERA\\Campaign 5',
-#'     # 'D:\\HERA\\Campaign 6'
-#'     #'/Users/mrosen44/Johns\ Hopkins\ University/Salar\ Khaleghzadegan\ -\ Project_NASA/HERA/Campaign\ 5/Mission\ 1/E4\ Data\ for\ HERA\ C5M1/MD-1'
-#'     'D:\\PICU'
-#'   ),
-#'   recursive = TRUE,
-#'   pattern = "*.csv$",
-#'   full.names = TRUE) %>%
-#'   stringr::str_subset("EDA.csv$|HR.csv$|ACC.csv$|BVP.csv$|TEMP.csv$",negate = FALSE)
-#' 
-#' con <- DBI::dbConnect(RPostgres::Postgres(),
-#'                       dbname   = 'e4_picu',#config$dbname, 
-#'                       host     = 'localhost',
-#'                       port     = 5432,#config$dbPort,
-#'                       user     = 'postgres',#'script_monkey',#config$dbUser,
-#'                       password = 'LetMeIn21'#'cocobolo32'#config$dbPw
-#'                       )
-#' Sys.time()
-#' for (f in mission_files) {
-#'   loadE4CsvToDB(
-#'     fP = f,
-#'     con = con
-#'   )
-#' }
-#' Sys.time()
-#' beepr::beep()
-#' DBI::dbDisconnect(con)
-#' 
-#' 
+mission_files <- list.files(
+  c(
+    # 'D:\\HERA\\Campaign 5',
+    # 'D:\\HERA\\Campaign 6'
+    #'/Users/mrosen44/Johns\ Hopkins\ University/Salar\ Khaleghzadegan\ -\ Project_NASA/HERA/Campaign\ 5/Mission\ 1/E4\ Data\ for\ HERA\ C5M1/MD-1'
+    'D:\\PICU'
+  ),
+  recursive = TRUE,
+  pattern = "*.csv$",
+  full.names = TRUE) %>%
+  # stringr::str_subset("EDA.csv$|HR.csv$|ACC.csv$|BVP.csv$|TEMP.csv$",negate = FALSE)
+  stringr::str_subset("IBI.csv$",negate = FALSE)
+
+con <- DBI::dbConnect(RPostgres::Postgres(),
+                      dbname   = 'e4_picu',#config$dbname,
+                      host     = 'localhost',
+                      port     = 5432,#config$dbPort,
+                      user     = 'postgres',#'script_monkey',#config$dbUser,
+                      password = 'LetMeIn21'#'cocobolo32'#config$dbPw
+                      )
+Sys.time()
+for (f in mission_files) {
+  loadE4CsvToDB(
+    fP = f,
+    con = con
+  )
+}
+Sys.time()
+beepr::beep()
+DBI::dbDisconnect(con)
+
+
 #' for (t in DBI::dbListTables(con)) {
 #'   DBI::dbRemoveTable(con,t)
 #' }

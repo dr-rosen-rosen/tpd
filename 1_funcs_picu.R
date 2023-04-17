@@ -51,8 +51,13 @@ loadE4CsvToDB <- function(fPath, con) {
       to = end)
     data['time_stamp'] <- time_stamp
   } else if (measure == 'IBI') {
-    print('Not doing IBI yet')
-    data <- data.frame()
+    start <- lubridate::as_datetime(read.csv(fPath, nrows=1, skip=0,header = FALSE)[[1]], tz = 'UTC')
+    data <- read.csv(
+      fPath, skip = 1, header = FALSE, colClasses = c('numeric','numeric'), col.names = c('beat_time','ibi')
+    ) %>%
+      mutate(
+        time_stamp = start + lubridate::seconds(beat_time)
+      )
   }
   
   # Push to DB
