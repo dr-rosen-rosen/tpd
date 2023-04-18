@@ -184,6 +184,7 @@ pull_e4_data <- function(r, measure,con) {
     #dplyr::filter(task_num == r$task_num) %>%
     dplyr::collect() #%>%
   #print(head(role_e4_list))
+  # Gets a list of all e4 IDs in the target segment to pull
   role_e4_list <- role_e4_list[which(role_e4_list$task_num == r$task_num),] %>%
     select(e4_id) %>%
     unlist()
@@ -203,7 +204,6 @@ pull_e4_data <- function(r, measure,con) {
       #print(nrow(one_e4))
       if (nrow(one_e4) > 0) { # checks if anything is in the data, and adds to list if there is
         print('... has data!')
-        ### Need to add metric conversion for ACC (go from 3 cols to 'energy metric')
         # sets col name to part_id; This is done to track who is who once they are integrated
         # need to expand this to other measures with named list of measure / metrics
         if (measure == 'hr'){
@@ -213,7 +213,10 @@ pull_e4_data <- function(r, measure,con) {
         } else if (measure == 'acc') {
           one_e4 <- create_ACC_energy_metric_sfly(one_e4)
           colnames(one_e4)[which(names(one_e4) == "energy")] <- role
-        } 
+        } else if (measure == 'ibi') {
+          one_e4 <- one_e4$beat_time - one_e4[[1,'beat_time']] # this is the format RHRV uses; the - x makes the first value 0 and adjusts remaining
+          colnames(one_e4)[which(names(one_e4) == "beat_time")] <- role
+        }
         df_list[[role]] <- one_e4
       } else {
         #print('... has NO data!')
@@ -222,7 +225,11 @@ pull_e4_data <- function(r, measure,con) {
     } # end of !is.na(role)
   } # end of for role in roles loop
   if (all_e4_data == TRUE) {
-    all_data <- df_list %>% purrr::reduce(full_join, by = "time_stamp")
+    if (measure =='ibi') {
+      all_data <- df_list %>% bind_cols()
+    } else {
+      all_data <- df_list %>% purrr::reduce(full_join, by = "time_stamp")
+    }
     print(paste('All data this big... ',ncol(all_data),' by ',nrow(all_data)))
     return(all_data)
   } else {
