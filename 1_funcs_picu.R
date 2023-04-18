@@ -62,10 +62,17 @@ loadE4CsvToDB <- function(fPath, con) {
   
   # Push to DB
   t <- paste0(tolower(device),'_',tolower(measure))
-  if (!DBI::dbExistsTable(con,t)) { # check if table exists in database; create if it doesn't
-    DBI::dbCreateTable(con, t, data)
-  } 
-  DBI::dbWriteTable(con, name = t, value = data, append = TRUE)
+  print(fPath)
+  print(paste('Exists:',exists('data')))
+  print(paste('Empty:',plyr::empty(data)))
+  if (!plyr::empty(data)) {
+    if (!DBI::dbExistsTable(con,t)) { # check if table exists in database; create if it doesn't
+      DBI::dbCreateTable(con, t, data)
+    } 
+    DBI::dbWriteTable(con, name = t, value = data, append = TRUE)
+  } else {
+    print(paste('Problems with:',fPath,'; appears empty'))
+  }
   return(t)
 }
 

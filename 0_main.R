@@ -36,7 +36,8 @@ mission_files <- list.files(
   pattern = "*.csv$",
   full.names = TRUE) %>%
   # stringr::str_subset("EDA.csv$|HR.csv$|ACC.csv$|BVP.csv$|TEMP.csv$",negate = FALSE)
-  stringr::str_subset("IBI.csv$",negate = FALSE)
+  # stringr::str_subset("IBI.csv$",negate = FALSE)
+  stringr::str_subset("EDA.csv$|HR.csv$|ACC.csv$|BVP.csv$|TEMP.csv$|IBI.csv$",negate = FALSE)
 
 con <- DBI::dbConnect(RPostgres::Postgres(),
                       dbname   = 'e4_picu',#config$dbname,
@@ -57,9 +58,9 @@ beepr::beep()
 DBI::dbDisconnect(con)
 
 
-#' for (t in DBI::dbListTables(con)) {
-#'   DBI::dbRemoveTable(con,t)
-#' }
+for (t in DBI::dbListTables(con)) {
+  DBI::dbRemoveTable(con,t)
+}
 
 tasks_df <- get_task_lists(
     data_dir = 'data',
