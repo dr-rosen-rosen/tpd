@@ -69,7 +69,8 @@ get_ind_hrv <- function(task_list, measure, con) {
     .combine = rbind, .noexport = 'con') %do% {
       # get E4 data
       print(paste('Starting task num:',r$task_num))
-      e4_df <- pull_e4_data_sfly(r, measure, con)
+      e4_df <- pull_e4_data(r, measure, con)
+      print(nrow(e4_df))
       hrv_df <- data.frame(
         task_num = integer(),
         team_or_part_id = character(), # team or part ID
@@ -104,3 +105,13 @@ get_ind_hrv <- function(task_list, measure, con) {
       } else {print(paste('No hrv metrics for:',r$task_num))}
     } # end iterating through rows of tasklist
 }
+
+get_ind_hrv(
+  task_list = tasks_df_short,
+  measure = 'ibi',
+  con = DBI::dbConnect(RPostgres::Postgres(),
+                        dbname   = config$dbname, 
+                        host     = 'localhost',
+                        port     = config$dbport,
+                        user     = config$dbUser,
+                        password = config$dbPw))

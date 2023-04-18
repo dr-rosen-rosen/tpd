@@ -190,14 +190,14 @@ pull_e4_data <- function(r, measure,con) {
   role_e4_list <- t %>%
     #dplyr::filter(task_num == r$task_num) %>%
     dplyr::collect() #%>%
-  #print(head(role_e4_list))
+  print(head(role_e4_list))
   # Gets a list of all e4 IDs in the target segment to pull
   role_e4_list <- role_e4_list[which(role_e4_list$task_num == r$task_num),] %>%
     select(e4_id) %>%
     unlist()
   role_e4_list <- unname(role_e4_list)
   #role_e4_list <- unlist(role_e4_list$e4_id)
-  #print(role_e4_list)
+  print(role_e4_list)
   start_time <- r$start_time #lubridate::with_tz(r$start_time, tzone = 'America/Chicago')
   end_time <- start_time + lubridate::minutes(r$duration_min)
   
@@ -208,7 +208,7 @@ pull_e4_data <- function(r, measure,con) {
       one_e4 <- t %>%
         dplyr::filter(time_stamp >= start_time , time_stamp <= end_time) %>%
         dplyr::collect()
-      #print(nrow(one_e4))
+      print(nrow(one_e4))
       if (nrow(one_e4) > 0) { # checks if anything is in the data, and adds to list if there is
         print('... has data!')
         # sets col name to part_id; This is done to track who is who once they are integrated
