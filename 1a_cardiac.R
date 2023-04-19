@@ -47,9 +47,12 @@ hrv.data2 = CreateTimeAnalysis(hrv.data2, size = 300,
                               interval = 7.8125)
 
 
-get_hrv_metrics <- function(e4_df, role, task_num) {
+get_hrv_metrics <- function(e4_list, role, task_num) {
+  print('Getting HRV metrics..')
   hrv.data <- RHRV::CreateHRVData()
-  hrv.data$Beat$Time <- e4_df[,role]
+  hrv.data$Beat$Time <- as.data.frame(e4_list[role])
+  print('loaded time into hrv.data:')
+  print(hrv.data$Time)
   hrv.data = BuildNIHR(hrv.data)
   hrv.data = FilterNIHR(hrv.data)
   hrv.data = InterpolateNIHR(hrv.data, freqhr = 4)
@@ -57,6 +60,7 @@ get_hrv_metrics <- function(e4_df, role, task_num) {
     hrv.data$TimeAnalysis, 
     'team_or_part_id' = role,
     'task_num' = task_num)
+  print(paste('HRV row for: ',task_num,'\n','new_row'))
   # PlotNIHR(hrv.data, main = "niHR")
   # hrv.data = CreateTimeAnalysis(hrv.data, size = 300,
   #                                interval = 7.8125)
@@ -69,8 +73,9 @@ get_ind_hrv <- function(task_list, measure, con) {
     .combine = rbind, .noexport = 'con') %do% {
       # get E4 data
       print(paste('Starting task num:',r$task_num))
-      e4_df <- pull_e4_data(r, measure, con)
-      print(nrow(e4_df))
+      e4_list <- pull_e4_data(r, measure, con)
+      print('back from pulling E4')
+      print(names(e4_list))
       hrv_df <- data.frame(
         task_num = integer(),
         team_or_part_id = character(), # team or part ID
@@ -86,10 +91,14 @@ get_ind_hrv <- function(task_list, measure, con) {
         TINN = numeric(),
         HRVi = numeric()
       )
-      if (nrow(e4_df > 0)) {
-        for (role in colnames(e4_df)) {
-          new_row <- get_hrv_metrics(e4_df, role, r$task_num)
-          if (!plyr::empty(new_role)) {
+      print(length(e4_list))
+      if (length(e4_list) > 0) {
+        print('starting cyclingthrough roles')
+        for (role in names(e4_list)) {
+          print(paste('...starting role:',role))
+          print(as.vector(e4_list[role]))
+          new_row <- get_hrv_metrics(e4_list, role, r$task_num)
+          if (!plyr::empty(new_row)) {
             hrv_df <- bind_rows(hrv_df,new_row)
           }
         }
@@ -107,7 +116,7 @@ get_ind_hrv <- function(task_list, measure, con) {
 }
 
 get_ind_hrv(
-  task_list = tasks_df_short,
+  task_list = tasks_df_short[which(tasks_df_short$task_num <=2),],
   measure = 'ibi',
   con = DBI::dbConnect(RPostgres::Postgres(),
                         dbname   = config$dbname, 

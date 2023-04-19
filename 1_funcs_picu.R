@@ -189,8 +189,7 @@ pull_e4_data <- function(r, measure,con) {
   t <- dplyr::tbl(con,'task_list')
   role_e4_list <- t %>%
     #dplyr::filter(task_num == r$task_num) %>%
-    dplyr::collect() #%>%
-  print(head(role_e4_list))
+    dplyr::collect() 
   # Gets a list of all e4 IDs in the target segment to pull
   role_e4_list <- role_e4_list[which(role_e4_list$task_num == r$task_num),] %>%
     select(e4_id) %>%
@@ -211,6 +210,7 @@ pull_e4_data <- function(r, measure,con) {
       print(nrow(one_e4))
       if (nrow(one_e4) > 0) { # checks if anything is in the data, and adds to list if there is
         print('... has data!')
+        print(head(one_e4))
         # sets col name to part_id; This is done to track who is who once they are integrated
         # need to expand this to other measures with named list of measure / metrics
         if (measure == 'hr'){
@@ -221,8 +221,11 @@ pull_e4_data <- function(r, measure,con) {
           one_e4 <- create_ACC_energy_metric_sfly(one_e4)
           colnames(one_e4)[which(names(one_e4) == "energy")] <- role
         } else if (measure == 'ibi') {
-          one_e4 <- one_e4$beat_time - one_e4[[1,'beat_time']] # this is the format RHRV uses; the - x makes the first value 0 and adjusts remaining
+          print('In IBI...')
+          one_e4$beat_time <- one_e4$beat_time - one_e4[[1,'beat_time']]# this is the format RHRV uses; the - x makes the first value 0 and adjusts remaining
           colnames(one_e4)[which(names(one_e4) == "beat_time")] <- role
+          one_e4 <- one_e4[,role]
+          print(head(one_e4))
         }
         df_list[[role]] <- one_e4
       } else {
@@ -233,7 +236,13 @@ pull_e4_data <- function(r, measure,con) {
   } # end of for role in roles loop
   if (all_e4_data == TRUE) {
     if (measure =='ibi') {
-      all_data <- df_list %>% bind_cols()
+      # print('trying to bind e4 data')
+      # all_data <- df_list %>% bind_cols()
+      # print('combined e4 data... ')
+      # print(nrow(all_data))
+      # problems merging different lengths. Keeping ibi data as lists for now
+      all_data <- df_list
+      print('passing on IBI lists..')
     } else {
       all_data <- df_list %>% purrr::reduce(full_join, by = "time_stamp")
     }
