@@ -7,6 +7,7 @@ config.yml
 # Session Data files
 .RData
 *.csv
+*.png
 
 # User-specific files
 .Ruserdata
