@@ -1,8 +1,8 @@
 ##############################################################################
 ##############################################################################
 ##############
-############## Main scripts for TPD
-##############
+############## Main scripts for TPD V2
+##############  This is modified to use the heartPy and neurokit2 HR and EDA measures
 ##############
 ##############################################################################
 ##############################################################################
@@ -20,47 +20,47 @@ library(here)
 # library(reticulate)
 
 config <- config::get()
-source('1_funcs_picu.R')
+source('1_funcs_picuV2.R')
 # Sys.setenv(RETICULATE_PYTHON = config$py_version)
 # reticulate::source_python('1_funcs.py')
 
 # for each mission day, gets all the E4 csv files (for all badges and all variables)
-mission_files <- list.files(
-  c(
-    # 'D:\\HERA\\Campaign 5',
-    # 'D:\\HERA\\Campaign 6'
-    #'/Users/mrosen44/Johns\ Hopkins\ University/Salar\ Khaleghzadegan\ -\ Project_NASA/HERA/Campaign\ 5/Mission\ 1/E4\ Data\ for\ HERA\ C5M1/MD-1'
-    'D:\\PICU'
-  ),
-  recursive = TRUE,
-  pattern = "*.csv$",
-  full.names = TRUE) %>%
-  # stringr::str_subset("EDA.csv$|HR.csv$|ACC.csv$|BVP.csv$|TEMP.csv$",negate = FALSE)
-  # stringr::str_subset("IBI.csv$",negate = FALSE)
-  stringr::str_subset("EDA.csv$|HR.csv$|ACC.csv$|BVP.csv$|TEMP.csv$|IBI.csv$",negate = FALSE)
-
-con <- DBI::dbConnect(RPostgres::Postgres(),
-                      dbname   = 'e4_picu',#config$dbname,
-                      host     = 'localhost',
-                      port     = 5432,#config$dbPort,
-                      user     = 'postgres',#'script_monkey',#config$dbUser,
-                      password = 'LetMeIn21'#'cocobolo32'#config$dbPw
-                      )
-Sys.time()
-for (f in mission_files) {
-  loadE4CsvToDB(
-    fP = f,
-    con = con
-  )
-}
-Sys.time()
-beepr::beep()
-DBI::dbDisconnect(con)
-
-
-for (t in DBI::dbListTables(con)) {
-  DBI::dbRemoveTable(con,t)
-}
+#' mission_files <- list.files(
+#'   c(
+#'     # 'D:\\HERA\\Campaign 5',
+#'     # 'D:\\HERA\\Campaign 6'
+#'     #'/Users/mrosen44/Johns\ Hopkins\ University/Salar\ Khaleghzadegan\ -\ Project_NASA/HERA/Campaign\ 5/Mission\ 1/E4\ Data\ for\ HERA\ C5M1/MD-1'
+#'     'D:\\PICU'
+#'   ),
+#'   recursive = TRUE,
+#'   pattern = "*.csv$",
+#'   full.names = TRUE) %>%
+#'   # stringr::str_subset("EDA.csv$|HR.csv$|ACC.csv$|BVP.csv$|TEMP.csv$",negate = FALSE)
+#'   # stringr::str_subset("IBI.csv$",negate = FALSE)
+#'   stringr::str_subset("EDA.csv$|HR.csv$|ACC.csv$|BVP.csv$|TEMP.csv$|IBI.csv$",negate = FALSE)
+#' 
+#' con <- DBI::dbConnect(RPostgres::Postgres(),
+#'                       dbname   = 'e4_picu',#config$dbname,
+#'                       host     = 'localhost',
+#'                       port     = 5432,#config$dbPort,
+#'                       user     = 'postgres',#'script_monkey',#config$dbUser,
+#'                       password = 'LetMeIn21'#'cocobolo32'#config$dbPw
+#'                       )
+#' Sys.time()
+#' for (f in mission_files) {
+#'   loadE4CsvToDB(
+#'     fP = f,
+#'     con = con
+#'   )
+#' }
+#' Sys.time()
+#' beepr::beep()
+#' DBI::dbDisconnect(con)
+#' 
+#' 
+#' for (t in DBI::dbListTables(con)) {
+#'   DBI::dbRemoveTable(con,t)
+#' }
 
 tasks_df <- get_task_lists(
     data_dir = 'data',
@@ -84,24 +84,24 @@ tasks_df_short <- tasks_df %>%
   distinct() %>%
   arrange(task_num)
 
-# for (measure in c('eda','hr')) {
-#   for (offset in c(5,20,60)) {
-#     print(paste('STARTING:',measure,offset))
-#     get_synchronies(
-#       # task_list = tasks_df[which(tasks_df$task_num <= 10),],
-#       # task_list = tasks_df_short[which(tasks_df_short$task_num == 1),],
-#       task_list = tasks_df_short,
-#       measure = measure,
-#       offset = offset,
-#       con = DBI::dbConnect(RPostgres::Postgres(),
-#                            dbname   = config$dbname, 
-#                            host     = 'localhost',
-#                            port     = config$dbport,
-#                            user     = config$dbUser,
-#                            password = config$dbPw)
-#     )
-#   }
-# }
+for (measure in c('eda','hr')) {
+  for (offset in c(5,20,60)) {
+    print(paste('STARTING:',measure,offset))
+    get_synchronies(
+      # task_list = tasks_df[which(tasks_df$task_num <= 10),],
+      # task_list = tasks_df_short[which(tasks_df_short$task_num == 1),],
+      task_list = tasks_df_short,
+      measure = measure,
+      offset = offset,
+      con = DBI::dbConnect(RPostgres::Postgres(),
+                           dbname   = config$dbname,
+                           host     = 'localhost',
+                           port     = config$dbport,
+                           user     = config$dbUser,
+                           password = config$dbPw)
+    )
+  }
+}
 
 get_synchronies(
   # task_list = tasks_df[which(tasks_df$task_num <= 10),],
@@ -118,16 +118,17 @@ get_synchronies(
 )
 beepr::beep()
 
-get_mean_physio(
-  task_list = tasks_df_short,
-  measure = 'hr',
-  con = DBI::dbConnect(RPostgres::Postgres(),
-                       dbname   = config$dbname, 
-                       host     = 'localhost',
-                       port     = config$dbport,
-                       user     = config$dbUser,
-                       password = config$dbPw)
-)
+### This is now done in heartPy and neurokit2 notebook
+# get_mean_physio(
+#   task_list = tasks_df_short,
+#   measure = 'hr',
+#   con = DBI::dbConnect(RPostgres::Postgres(),
+#                        dbname   = config$dbname, 
+#                        host     = 'localhost',
+#                        port     = config$dbport,
+#                        user     = config$dbUser,
+#                        password = config$dbPw)
+# )
 
 
 
