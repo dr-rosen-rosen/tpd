@@ -86,7 +86,7 @@ pre_db_tasks_and_metrics <- function(tasks_df, con, overwrite) {
     physio_metric = character(), # e.g., bpm, ibi, etc. 
     s_metric_type = character(), # s_e, empath, driver
     synch_coef = numeric(),
-    offset_secs = integer()
+    offset = integer()
   )
   
   unobtrusive_df <- data.frame(
@@ -182,7 +182,7 @@ create_ACC_energy_metric <- function(one_e4) {
 
 create_ACC_energy_metric_sfly <- purrr::possibly(.f = create_ACC_energy_metric, otherwise = NULL)
 
-pull_e4_data <- function(r, measure,tbl_sufix, con) {
+pull_e4_data <- function(r, metric,tbl_sufix, con) {
   df_list = list()
   all_e4_data <- TRUE
   # version for HERA:
@@ -190,7 +190,6 @@ pull_e4_data <- function(r, measure,tbl_sufix, con) {
   # version for PICU
   t <- dplyr::tbl(con,'task_list')
   role_e4_list <- t %>%
-    #dplyr::filter(task_num == r$task_num) %>%
     dplyr::collect() 
   # Gets a list of all e4 IDs in the target segment to pull
   role_e4_list <- role_e4_list[which(role_e4_list$task_num == r$task_num),] %>%
@@ -209,14 +208,13 @@ pull_e4_data <- function(r, measure,tbl_sufix, con) {
       one_e4 <- t %>%
         dplyr::filter(time_stamp >= start_time , time_stamp <= end_time) %>%
         dplyr::collect() %>%
-        select(any_of(c('time_stamp',get(measure))))
+        select(any_of(c('time_stamp',get(metric)))) ################################# NOT SURE THIS WORKS
       print(nrow(one_e4))
       if (nrow(one_e4) > 0) { # checks if anything is in the data, and adds to list if there is
         print('... has data!')
         print(head(one_e4))
         # sets col name to part_id; This is done to track who is who once they are integrated
-        # need to expand this to other measures with named list of measure / metrics
-        colnames(one_e4)[which(names(one_e4) == measure)] <- role
+        colnames(one_e4)[which(names(one_e4) == metric)] <- role
         df_list[[role]] <- one_e4
       } else {
         #print('... has NO data!')
@@ -235,25 +233,14 @@ pull_e4_data <- function(r, measure,tbl_sufix, con) {
 
 pull_e4_data_sfly <- purrr::possibly(.f = pull_e4_data, otherwise = NULL)
 
-make_sync_matrix <- function(e4_df, offset, measure){
+make_sync_matrix <- function(e4_df, offset){
   ### define datastructures for making and storing coef_matrix
   #print('Make sync matrix')
   #print(head(e4_df))
   workingRoles <- colnames(e4_df)
   workingRoles <- workingRoles[workingRoles!="time_stamp"]
   syncCoefs <- data.frame(matrix(ncol=length(workingRoles),nrow=length(workingRoles), dimnames=list(workingRoles, workingRoles)))
-  #print(workingRoles)
-  ### format and clean timeseries
-  
-  # resample to one second; HR is already at one second.
-  if (measure != 'hr') {
-    print('upsampling...')
-    e4_df <- e4_df %>%
-      mutate(time_stamp = floor_date(time_stamp, unit = "seconds")) %>% 
-      group_by(time_stamp) %>%
-      summarise(across(everything(), .fns = mean))
-  }
-  
+
   ### Creates diagonal (ARs) in Table 1 in Guastello and Perisini; and saves timeseris residuals with AR removed
   for (fromRole in workingRoles){
     print(fromRole)
@@ -316,23 +303,24 @@ get_sync_metrics <- function(syncMatrix) {
 
 get_sync_metrics_sfly <- purrr::possibly(.f = get_sync_metrics, otherwise = NULL)
 
-get_synchronies <- function(task_list, measure, c, offset, con) {
+get_synchronies <- function(task_list, physio_signal, tbl_sufix_dict, metric, offset, con) {
   foreach::foreach(
     r = iterators::iter(task_list, by = 'row'),
     .combine = rbind, .noexport = 'con') %do% {
       # get E4 data
-      tbl_sufix <- tbl_sufix_dict[measure]
+      tbl_sufix <- tbl_sufix_dict[physio_signal]
       print(paste('Starting task num:',r$task_num))
-      e4_df <- pull_e4_data_sfly(r, measure, tbl_sufix, con)
+      e4_df <- pull_e4_data_sfly(r, metric, tbl_sufix, con)
       # create tpd measures
       #print(head(e4_df))
-      syncMatrix <- make_sync_matrix_sfly(e4_df, offset, measure)
+      syncMatrix <- make_sync_matrix_sfly(e4_df, offset)
       sync_df <- get_sync_metrics_sfly(syncMatrix)
       sync_df <- sync_df %>%
         mutate(
           task_num = r$task_num,
-          physio_signal = measure,
-          offset_secs = offset
+          physio_signal = physio_signal,
+          physio_metric = metric,
+          offset = offset
         )
       if (nrow(sync_df > 0)) {
         DBI::dbAppendTable(con, 'sync_metrics',sync_df)
@@ -356,7 +344,7 @@ get_mean_physio <- function(task_list, measure, con) {
           select(-time_stamp) %>%
           summarize_all(list(mean = mean,sd = sd), na.rm = TRUE) %>%
           pivot_longer(
-            cols = everything(), 
+            cols = everything(),
             names_to = c('team_or_part_id','metric'),
             names_sep = '_',
             values_to = 'value') %>%

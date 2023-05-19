@@ -84,24 +84,30 @@ tasks_df_short <- tasks_df %>%
   distinct() %>%
   arrange(task_num)
 
-for (measure in c('eda','hr')) {
-  for (offset in c(5,20,60)) {
-    print(paste('STARTING:',measure,offset))
-    get_synchronies(
-      # task_list = tasks_df[which(tasks_df$task_num <= 10),],
-      # task_list = tasks_df_short[which(tasks_df_short$task_num == 1),],
-      task_list = tasks_df_short,
-      measure = measure,
-      offset = offset,
-      con = DBI::dbConnect(RPostgres::Postgres(),
-                           dbname   = config$dbname,
-                           host     = 'localhost',
-                           port     = config$dbport,
-                           user     = config$dbUser,
-                           password = config$dbPw)
-    )
+
+cardic_metrics <- c('bpm', 'ibi', 'sdnn', 'sdsd', 'rmssd', 'pnn20', 'pnn50', 'hr_mad', 'sd1', 'sd2', 's', 'sd1/sd2', 'breathingrate')
+eda_metrics <- c('eda_clean', 'eda_tonic', 'eda_phasic')
+tbl_sufix_dict <- c('eda' = '_eda_nk2', 'cardiac' = '_hpy_rolling')
+
+offset = 1 # cardiac measures are sampled at 30 second intervals; eda at 4hz; the offset is # of positions (not seconds)
+for (metric in cardiac_metrics) {
+  print(paste('STARTING:',metric))
+  get_synchronies(
+    # task_list = tasks_df[which(tasks_df$task_num <= 10),],
+    # task_list = tasks_df_short[which(tasks_df_short$task_num == 1),],
+    task_list = tasks_df_short,
+    physio_signal = physio_signal,
+    tbl_sufix_dict = tbl_sufix_dict,
+    metric = metric,
+    offset = offset,
+    con = DBI::dbConnect(RPostgres::Postgres(),
+                         dbname   = config$dbname,
+                         host     = 'localhost',
+                         port     = config$dbport,
+                         user     = config$dbUser,
+                         password = config$dbPw)
+  )
   }
-}
 
 get_synchronies(
   # task_list = tasks_df[which(tasks_df$task_num <= 10),],
