@@ -208,13 +208,14 @@ pull_e4_data <- function(r, metric,tbl_sufix, con) {
       one_e4 <- t %>%
         dplyr::filter(time_stamp >= start_time , time_stamp <= end_time) %>%
         dplyr::collect() %>%
-        select(any_of(c('time_stamp',get(metric)))) ################################# NOT SURE THIS WORKS
+        select(time_stamp,!!as.symbol(metric)) ################################# NOT SURE THIS WORKS
       print(nrow(one_e4))
       if (nrow(one_e4) > 0) { # checks if anything is in the data, and adds to list if there is
         print('... has data!')
         print(head(one_e4))
         # sets col name to part_id; This is done to track who is who once they are integrated
         colnames(one_e4)[which(names(one_e4) == metric)] <- role
+        print(head(one_e4))
         df_list[[role]] <- one_e4
       } else {
         #print('... has NO data!')
@@ -224,6 +225,15 @@ pull_e4_data <- function(r, metric,tbl_sufix, con) {
   } # end of for role in roles loop
   if (all_e4_data == TRUE) {
     all_data <- df_list %>% purrr::reduce(full_join, by = "time_stamp")
+    print(paste('All data this big... ',ncol(all_data),' by ',nrow(all_data)))
+    #print(head(all_data))
+    all_data <- all_data %>%
+      mutate(time_stamp = floor_date(time_stamp, unit = "minute")) %>% 
+      group_by(time_stamp) %>%
+      summarise(across(everything(), ~ mean(.x, na.rm = TRUE))) %>%
+      ungroup()
+    #print(head(all_data))
+      
     print(paste('All data this big... ',ncol(all_data),' by ',nrow(all_data)))
     return(all_data)
   } else {
@@ -244,7 +254,7 @@ make_sync_matrix <- function(e4_df, offset){
   ### Creates diagonal (ARs) in Table 1 in Guastello and Perisini; and saves timeseris residuals with AR removed
   for (fromRole in workingRoles){
     print(fromRole)
-    role_acf <- e4_df[,fromRole] %>% drop_na() %>% acf(plot = FALSE, lag.max = offset)
+    role_acf <- e4_df[,fromRole] %>% acf(plot = FALSE, lag.max = offset, na.action = na.contiguous)
     #print('done acf')
     print(role_acf$acf[offset])
     syncCoefs[[fromRole,fromRole]] <- role_acf$acf[offset]
@@ -262,13 +272,14 @@ make_sync_matrix <- function(e4_df, offset){
     toRoles <- workingRoles[workingRoles != fromRole]
     print(toRoles)
     for (toRole in toRoles) {
-      #print(paste('toRole:',(toRole)))
-      #print(syncCoefs)
-      #print(ccf(e4_df[,toRole], e4_df[,fromRole], na.action=na.omit, plot = FALSE, lag.max = offset)$acf[offset])
-      syncCoefs[[fromRole,toRole]] <- ccf(e4_df[,toRole], e4_df[,fromRole], na.action=na.omit, plot = FALSE, lag.max = offset)$acf[offset]
+      print(paste('toRole:',(toRole)))
+      print(syncCoefs)
+      print(ccf(e4_df[,toRole], e4_df[,fromRole], na.action=na.contiguous, plot = FALSE, lag.max = offset)$acf[offset])
+      syncCoefs[[fromRole,toRole]] <- ccf(e4_df[,toRole], e4_df[,fromRole], na.action=na.contiguous, plot = FALSE, lag.max = offset)$acf[offset]
     }
   }
   print('done rest of matrix')
+  #print(syncCoefs)
   return(syncCoefs)
 }
 
@@ -315,14 +326,14 @@ get_synchronies <- function(task_list, physio_signal, tbl_sufix_dict, metric, of
       #print(head(e4_df))
       syncMatrix <- make_sync_matrix_sfly(e4_df, offset)
       sync_df <- get_sync_metrics_sfly(syncMatrix)
-      sync_df <- sync_df %>%
-        mutate(
-          task_num = r$task_num,
-          physio_signal = physio_signal,
-          physio_metric = metric,
-          offset = offset
-        )
       if (nrow(sync_df > 0)) {
+        sync_df <- sync_df %>%
+          mutate(
+            task_num = r$task_num,
+            physio_signal = physio_signal,
+            physio_metric = metric,
+            offset = offset
+          )
         DBI::dbAppendTable(con, 'sync_metrics',sync_df)
       }
       NULL

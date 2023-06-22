@@ -85,18 +85,18 @@ tasks_df_short <- tasks_df %>%
   arrange(task_num)
 
 
-cardic_metrics <- c('bpm', 'ibi', 'sdnn', 'sdsd', 'rmssd', 'pnn20', 'pnn50', 'hr_mad', 'sd1', 'sd2', 's', 'sd1/sd2', 'breathingrate')
+cardiac_metrics <- c('bpm', 'ibi', 'sdnn', 'sdsd', 'rmssd', 'pnn20', 'pnn50', 'hr_mad', 'sd1', 'sd2', 's','breathingrate','sd1/sd2')
 eda_metrics <- c('eda_clean', 'eda_tonic', 'eda_phasic')
 tbl_sufix_dict <- c('eda' = '_eda_nk2', 'cardiac' = '_hpy_rolling')
 
-offset = 1 # cardiac measures are sampled at 30 second intervals; eda at 4hz; the offset is # of positions (not seconds)
-for (metric in cardiac_metrics) {
+offset = 2 # cardiac measures are sampled at 30 second intervals; eda at 4hz; the offset is # of positions (not seconds)
+for (metric in eda_metrics) {
   print(paste('STARTING:',metric))
   get_synchronies(
     # task_list = tasks_df[which(tasks_df$task_num <= 10),],
-    # task_list = tasks_df_short[which(tasks_df_short$task_num == 1),],
+    #task_list = tasks_df_short[which(tasks_df_short$task_num == 304),],
     task_list = tasks_df_short,
-    physio_signal = physio_signal,
+    physio_signal = 'eda',
     tbl_sufix_dict = tbl_sufix_dict,
     metric = metric,
     offset = offset,
@@ -148,37 +148,47 @@ sync_df_all <- DBI::dbReadTable(
                         password = config$dbPw),
   name = 'sync_metrics'
 ) %>%
-  unite(variable, c(physio_signal, s_metric_type, offset_secs)) %>%
+  unite(variable, c(physio_signal, physio_metric, s_metric_type, offset)) %>%
   pivot_wider(
     names_from = variable,
     values_from = synch_coef
   )
 
-
-mean_physio_df_all <- DBI::dbReadTable(
+cardiac_ind_df_all <- DBI::dbReadTable(
   conn = DBI::dbConnect(RPostgres::Postgres(),
                         dbname   = config$dbname, 
                         host     = 'localhost',
                         port     = config$dbport,
                         user     = config$dbUser,
                         password = config$dbPw),
-  name = 'unob_metrics'
-) %>%
-  unite(variable, c(unob_signal, metric)) %>%
-  pivot_wider(
-    names_from = variable,
-    values_from = value
-  )
+  name = 'cardiac_ind_summary'
+) 
+
+eda_ind_df_all <- DBI::dbReadTable(
+  conn = DBI::dbConnect(RPostgres::Postgres(),
+                        dbname   = config$dbname, 
+                        host     = 'localhost',
+                        port     = config$dbport,
+                        user     = config$dbUser,
+                        password = config$dbPw),
+  name = 'eda_ind_summary'
+) 
+
+ind_df <- full_join(cardiac_ind_df_all, eda_ind_df_all, by = c('task_num','study_member_id')) %>%
+  rename('team_or_part_id' = 'study_member_id')
+
 team_phys <- sync_df_all[which(sync_df_all$team_or_part_id == 'team'),] %>%
   select(task_num, contains("_s_e_"))
 sync_df_all <- sync_df_all %>%
   filter(team_or_part_id != 'team') %>%
+  mutate(team_or_part_id = tolower(team_or_part_id)) %>%
   select(-contains("_s_e_"))
-all_unob_df <- full_join(mean_physio_df_all,sync_df_all, by = c('task_num','team_or_part_id')) %>%
+all_unob_df <- full_join(ind_df,sync_df_all, by = c('task_num','team_or_part_id')) %>%
   left_join(team_phys, by = 'task_num') %>%
-  rename(e4_id = team_or_part_id)
+  rename(e4_id = team_or_part_id) 
 
 
-df_all <- tasks_df %>% left_join(all_unob_df, by = c('task_num','e4_id'))
-write.csv(df_all,'df_all.csv')
+df_all <- tasks_df %>% mutate(e4_id = tolower(e4_id)) %>% left_join(all_unob_df, by = c('task_num','e4_id')) %>%
+  relocate(task_num, e4_id)
+write.csv(df_all,'df_physio_all.csv')
 
