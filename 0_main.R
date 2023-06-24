@@ -109,20 +109,67 @@ for (metric in eda_metrics) {
   )
   }
 
-get_synchronies(
-  # task_list = tasks_df[which(tasks_df$task_num <= 10),],
-  # task_list = tasks_df_short[which(tasks_df_short$task_num == 1),],
-  task_list = tasks_df_short,
-  measure = 'hr',
-  offset = 5,
-  con = DBI::dbConnect(RPostgres::Postgres(),
-                       dbname   = config$dbname, 
-                       host     = 'localhost',
-                       port     = config$dbport,
-                       user     = config$dbUser,
-                       password = config$dbPw)
-)
-beepr::beep()
+
+
+##################
+###### RW Se 
+##################
+
+tasks_df_short_rw <- tasks_df %>%
+  filter(shift_chunk == 0) %>%
+  mutate(duration_min = 720) %>%
+  select(task_num, start_time, duration_min) %>%
+  distinct() %>%
+  arrange(task_num)
+
+#cardiac_metrics <- c('bpm', 'ibi', 'sdnn', 'sdsd', 'rmssd', 'pnn20', 'pnn50', 'hr_mad', 'sd1', 'sd2', 's','breathingrate','sd1/sd2')
+#eda_metrics <- c('eda_clean', 'eda_tonic', 'eda_phasic')
+
+cardiac_metrics <- c('rmssd')
+eda_metrics <- c('eda_clean')
+tbl_sufix_dict <- c('eda' = '_eda_nk2', 'cardiac' = '_hpy_rolling')
+
+eda_metrics <- c('micro_s')
+tbl_sufix_dict <- c('eda' = '_eda', 'cardiac' = '_hpy_rolling')
+
+offset = 2 # cardiac measures are sampled at 30 second intervals; eda at 4hz; the offset is # of positions (not seconds)
+rw_len = 30
+for (metric in eda_metrics) {
+  print(paste('STARTING:',metric))
+  get_synchronies_rw(
+    # task_list = tasks_df[which(tasks_df$task_num <= 10),],
+    #task_list = tasks_df_short[which(tasks_df_short$task_num == 304),],
+    task_list = tasks_df_short_rw[which(tasks_df_short_rw$task_num == 289),],
+    physio_signal = 'eda',
+    tbl_sufix_dict = tbl_sufix_dict,
+    metric = metric,
+    offset = offset,
+    rw_len = rw_len,
+    con = DBI::dbConnect(RPostgres::Postgres(),
+                         dbname   = config$dbname,
+                         host     = 'localhost',
+                         port     = config$dbport,
+                         user     = config$dbUser,
+                         password = config$dbPw)
+  )
+}
+
+
+
+# get_synchronies(
+#   # task_list = tasks_df[which(tasks_df$task_num <= 10),],
+#   # task_list = tasks_df_short[which(tasks_df_short$task_num == 1),],
+#   task_list = tasks_df_short,
+#   measure = 'hr',
+#   offset = 5,
+#   con = DBI::dbConnect(RPostgres::Postgres(),
+#                        dbname   = config$dbname, 
+#                        host     = 'localhost',
+#                        port     = config$dbport,
+#                        user     = config$dbUser,
+#                        password = config$dbPw)
+# )
+# beepr::beep()
 
 ### This is now done in heartPy and neurokit2 notebook
 # get_mean_physio(

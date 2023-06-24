@@ -89,6 +89,18 @@ pre_db_tasks_and_metrics <- function(tasks_df, con, overwrite) {
     offset = integer()
   )
   
+  sync_df_rw <- data.frame(
+    task_num = integer(),
+    team_or_part_id = character(), # team or part ID
+    physio_signal = character(), # EDA, HR, ACC
+    physio_metric = character(), # e.g., bpm, ibi, etc. 
+    s_metric_type = character(), # s_e, empath, driver
+    synch_coef = numeric(),
+    offset = integer(),
+    rw_len = integer(),
+    time_stamp = POSIXct()
+  )
+  
   unobtrusive_df <- data.frame(
     task_num = integer(),
     team_or_part_id = character(),
@@ -108,6 +120,10 @@ pre_db_tasks_and_metrics <- function(tasks_df, con, overwrite) {
   
   if(!DBI::dbExistsTable(con,'sync_metrics')) {
     DBI::dbCreateTable(con,'sync_metrics',sync_df)
+  }
+  
+  if(!DBI::dbExistsTable(con,'sync_metrics_rw')) {
+    DBI::dbCreateTable(con,'sync_metrics_rw',sync_df_rw)
   }
   
   if(!DBI::dbExistsTable(con,'unob_metrics')) {
@@ -149,7 +165,7 @@ get_task_lists <- function(data_dir, fname) {
     mutate(
       duration_min = 4*60, # 4 hour chunks
       start_time = force_tz(start_time, "America/New_York"),
-      start_time = with_tz(start_time, "UTC")
+      #start_time = with_tz(start_time, "UTC")
     ) %>%
     group_by(shift_day, shift_chunk) %>% mutate(task_num = cur_group_id()) %>% ungroup()
   
@@ -211,11 +227,11 @@ pull_e4_data <- function(r, metric,tbl_sufix, con) {
         select(time_stamp,!!as.symbol(metric)) ################################# NOT SURE THIS WORKS
       print(nrow(one_e4))
       if (nrow(one_e4) > 0) { # checks if anything is in the data, and adds to list if there is
-        print('... has data!')
-        print(head(one_e4))
+        #print('... has data!')
+        #print(head(one_e4))
         # sets col name to part_id; This is done to track who is who once they are integrated
         colnames(one_e4)[which(names(one_e4) == metric)] <- role
-        print(head(one_e4))
+        #print(head(one_e4))
         df_list[[role]] <- one_e4
       } else {
         #print('... has NO data!')
@@ -235,6 +251,7 @@ pull_e4_data <- function(r, metric,tbl_sufix, con) {
     #print(head(all_data))
       
     print(paste('All data this big... ',ncol(all_data),' by ',nrow(all_data)))
+    print(paste('Min timestamp:',min(all_data$time_stamp),' and Max timestamp:',max(all_data$time_stamp)))
     return(all_data)
   } else {
     return('WHOOOPS')
@@ -253,32 +270,32 @@ make_sync_matrix <- function(e4_df, offset){
 
   ### Creates diagonal (ARs) in Table 1 in Guastello and Perisini; and saves timeseris residuals with AR removed
   for (fromRole in workingRoles){
-    print(fromRole)
+    #print(fromRole)
     role_acf <- e4_df[,fromRole] %>% acf(plot = FALSE, lag.max = offset, na.action = na.contiguous)
     #print('done acf')
-    print(role_acf$acf[offset])
+    #print(role_acf$acf[offset])
     syncCoefs[[fromRole,fromRole]] <- role_acf$acf[offset]
     #print('stored acf')
     role_arima <- arima(e4_df[,fromRole], order = c(1,0,0), optim.control = list(maxit = 4000), method="ML")
     #print('done arima')
     # syncCoefs[[fromRole,fromRole]] <- role_arima$coef[['ar1']]
     e4_df[,fromRole] <- residuals(role_arima)
-    print(paste('done: ',fromRole))
+    #print(paste('done: ',fromRole))
   }
-  print('done ARs')
+  #print('done ARs')
   ### Fills in rest of the Table 1 matrix using residual timeseries
   for (fromRole in workingRoles){
-    print(fromRole)
+    #print(fromRole)
     toRoles <- workingRoles[workingRoles != fromRole]
-    print(toRoles)
+    #print(toRoles)
     for (toRole in toRoles) {
-      print(paste('toRole:',(toRole)))
-      print(syncCoefs)
-      print(ccf(e4_df[,toRole], e4_df[,fromRole], na.action=na.contiguous, plot = FALSE, lag.max = offset)$acf[offset])
+      #print(paste('toRole:',(toRole)))
+      #print(syncCoefs)
+      #print(ccf(e4_df[,toRole], e4_df[,fromRole], na.action=na.contiguous, plot = FALSE, lag.max = offset)$acf[offset])
       syncCoefs[[fromRole,toRole]] <- ccf(e4_df[,toRole], e4_df[,fromRole], na.action=na.contiguous, plot = FALSE, lag.max = offset)$acf[offset]
     }
   }
-  print('done rest of matrix')
+  #print('done rest of matrix')
   #print(syncCoefs)
   return(syncCoefs)
 }
@@ -340,6 +357,61 @@ get_synchronies <- function(task_list, physio_signal, tbl_sufix_dict, metric, of
     }
 }
 
+get_synchronies_rw <- function(task_list, physio_signal, tbl_sufix_dict, metric, offset, rw_len, con) {
+  foreach::foreach(
+    r = iterators::iter(task_list, by = 'row'),
+    .combine = rbind, .noexport = 'con') %do% {
+      # get E4 data
+      tbl_sufix <- tbl_sufix_dict[physio_signal]
+      print(paste('Starting task num:',r$task_num))
+      e4_df <- pull_e4_data_sfly(r, metric, tbl_sufix, con)
+      
+      # get matrix over each interval
+      rw_matrix <- runner::runner(
+        e4_df,
+        k = rw_len, # window length
+        f = make_sync_matrix_sfly,
+        offset = offset 
+      )
+      
+      # getting sync metrics per interval
+      synch_df_rw <- lapply(rw_matrix,get_sync_metrics_sfly)
+      
+      # adding timestamps to each matrix, binding into one datframe
+      # and adding additional info
+      synch_df_rw <- mapply(function(x, y) { 
+        x$time_stamp <- y 
+        return(x)}, synch_df_rw, e4_df$time_stamp) %>% 
+        dplyr::bind_rows() %>%
+        filter(time_stamp > e4_df$time_stamp[[rw_len]]) %>% #drop starting rows without complete window data
+        mutate(
+          task_num = r$task_num,
+          physio_signal = physio_signal,
+          physio_metric = metric,
+          offset = offset,
+          rw_len = rw_len
+        )
+      
+      print(head(synch_df_rw))
+      print(nrow(synch_df_rw))
+      
+      # save info
+
+      # if (nrow(sync_df > 0)) {
+      #   sync_df <- sync_df %>%
+      #     mutate(
+      #       task_num = r$task_num,
+      #       physio_signal = physio_signal,
+      #       physio_metric = metric,
+      #       offset = offset
+      #     )
+        
+        #DBI::dbAppendTable(con, 'sync_metrics',sync_df)
+      # }
+      NULL
+    }
+}
+
 
 #######
 
@@ -370,22 +442,3 @@ get_mean_physio <- function(task_list, measure, con) {
     }
 }
 
-
-# head(test)
-# offset <- 50
-# test1 <- acf(test[,'ms2'],plot = FALSE,lag.max = 50)
-# test1$acf[offset]
-# 
-# test2 <- arima(test$cdr, order = c(1,0,0), method="ML")
-# test2$coef[['ar1']]
-# residuals(test2)
-# 
-# test3 <- arima(test$fe, order = c(1,0,0), method = 'ML')
-# 
-# ccf(test$cdr,test$fe,lag.max = 50, plot = FALSE)$acf[50]
-# ccf(test$cdr,residuals(test2),lag.max = 50, plot = FALSE)$acf[50]
-# x <- ccf(residuals(test3),residuals(test2),lag.max = 50, plot = FALSE)
-# x$acf[50]
-# 
-# ccf(residuals(test3),residuals(test2),lag.max = 50)
-# ar(test$fe)
