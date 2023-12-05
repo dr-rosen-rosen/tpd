@@ -20,58 +20,61 @@ library(here)
 # library(reticulate)
 
 config <- config::get()
-source('1_funcs_picuV2.R')
 source('1_funcs_generic.R')
+source('1_funcs_nasa.R')
+#source('1_funcs_picuV2.R')
 # Sys.setenv(RETICULATE_PYTHON = config$py_version)
 # reticulate::source_python('1_funcs.py')
 
 # for each mission day, gets all the E4 csv files (for all badges and all variables)
-#' mission_files <- list.files(
-#'   c(
-#'     # 'D:\\HERA\\Campaign 5',
-#'     # 'D:\\HERA\\Campaign 6'
-#'     #'/Users/mrosen44/Johns\ Hopkins\ University/Salar\ Khaleghzadegan\ -\ Project_NASA/HERA/Campaign\ 5/Mission\ 1/E4\ Data\ for\ HERA\ C5M1/MD-1'
-#'     'D:\\PICU'
-#'   ),
-#'   recursive = TRUE,
-#'   pattern = "*.csv$",
-#'   full.names = TRUE) %>%
-#'   # stringr::str_subset("EDA.csv$|HR.csv$|ACC.csv$|BVP.csv$|TEMP.csv$",negate = FALSE)
-#'   # stringr::str_subset("IBI.csv$",negate = FALSE)
-#'   stringr::str_subset("EDA.csv$|HR.csv$|ACC.csv$|BVP.csv$|TEMP.csv$|IBI.csv$",negate = FALSE)
+mission_files <- list.files(
+  c(
+    'D:\\HERA\\Campaign 5'#,
+    #'D:\\HERA\\Campaign 6'
+    #'/Users/mrosen44/Johns\ Hopkins\ University/Salar\ Khaleghzadegan\ -\ Project_NASA/HERA/Campaign\ 5/Mission\ 1/E4\ Data\ for\ HERA\ C5M1/MD-1'
+    # 'D:\\PICU'
+  ),
+  recursive = TRUE,
+  pattern = "*.csv$",
+  full.names = TRUE) %>%
+  # stringr::str_subset("EDA.csv$|HR.csv$|ACC.csv$|BVP.csv$|TEMP.csv$",negate = FALSE)
+  # stringr::str_subset("IBI.csv$",negate = FALSE)
+  #stringr::str_subset("EDA.csv$|HR.csv$|ACC.csv$|BVP.csv$|TEMP.csv$|IBI.csv$",negate = FALSE)
+  stringr::str_subset("EDA.csv$|BVP.csv$",negate = FALSE)
+
+con <- DBI::dbConnect(RPostgres::Postgres(),
+                      dbname   = 'e4_hera',#'e4_picu',#config$dbname,
+                      host     = 'localhost',
+                      port     = 5432,#config$dbPort,
+                      user     = 'postgres',#'script_monkey',#config$dbUser,
+                      password = 'LetMeIn21'#'cocobolo32'#config$dbPw
+                      )
+Sys.time()
+for (f in mission_files) {
+  loadE4CsvToDB(
+    fP = f,
+    con = con
+  )
+}
+Sys.time()
+beepr::beep()
+DBI::dbDisconnect(con)
+
 #' 
-#' con <- DBI::dbConnect(RPostgres::Postgres(),
-#'                       dbname   = 'e4_picu',#config$dbname,
-#'                       host     = 'localhost',
-#'                       port     = 5432,#config$dbPort,
-#'                       user     = 'postgres',#'script_monkey',#config$dbUser,
-#'                       password = 'LetMeIn21'#'cocobolo32'#config$dbPw
-#'                       )
-#' Sys.time()
-#' for (f in mission_files) {
-#'   loadE4CsvToDB(
-#'     fP = f,
-#'     con = con
-#'   )
-#' }
-#' Sys.time()
-#' beepr::beep()
-#' DBI::dbDisconnect(con)
 #' 
-#' 
-#' for (t in DBI::dbListTables(con)) {
-#'   DBI::dbRemoveTable(con,t)
-#' }
+#for (t in DBI::dbListTables(con)) {
+#  DBI::dbRemoveTable(con,t)
+#}
 
 tasks_df <- get_task_lists(
-    data_dir = 'data',
-    fname = 'PICU_Device_Assignment.xlsx'
-)
+    data_dir = 'data/HERA_tasklists'
+) %>%
+  filter(!is.na(team) & task_category != 'none')
 
 pre_db_tasks_and_metrics(
   tasks_df = tasks_df,
   con = DBI::dbConnect(RPostgres::Postgres(),
-                       dbname   = config$dbname, 
+                       dbname   = 'e4_hera',#config$dbname, 
                        host     = 'localhost',
                        port     = config$dbport,
                        user     = config$dbUser,
@@ -79,15 +82,33 @@ pre_db_tasks_and_metrics(
   overwrite = FALSE
 )
 
+e4s <- unique(as.vector(as.matrix(tasks_df[c('cdr','fe','ms1','ms2')])))
+
+
+con <- DBI::dbConnect(RPostgres::Postgres(),
+                     dbname   = 'e4_hera',#config$dbname, 
+                     host     = 'localhost',
+                     port     = config$dbport,
+                     user     = config$dbUser,
+                     password = config$dbPw)
+measure <- 'EDA'
+for (e4 in e4s) {
+  t <- paste0(tolower(e4),'_',tolower(measure))
+  if (!DBI::dbExistsTable(con,t)) { # check if table exists in database; create if it doesn't
+    print(glue::glue('Problem with: {t}'))
+  }
+}
+
 
 tasks_df_short <- tasks_df %>%
-  select(task_num, start_time, duration_min) %>%
+  filter(team == "C6M4") %>%
   distinct() %>%
   arrange(task_num)
 
 
 cardiac_metrics <- c('bpm', 'ibi', 'sdnn', 'sdsd', 'rmssd', 'pnn20', 'pnn50', 'hr_mad', 'sd1', 'sd2', 's','breathingrate','sd1/sd2')
-eda_metrics <- c('eda_phasic') #c('eda_clean', 'eda_tonic', 'eda_phasic')
+#eda_metrics <- c('eda_clean', 'eda_tonic', 'eda_phasic')
+eda_metrics <- c('eda_phasic')
 tbl_sufix_dict <- c('eda' = '_eda_nk2', 'cardiac' = '_hpy_rolling')
 
 offset = 2 # cardiac measures are sampled at 30 second intervals; eda at 4hz; the offset is # of positions (not seconds)
@@ -96,13 +117,13 @@ for (metric in eda_metrics) {
   get_synchronies(
     # task_list = tasks_df[which(tasks_df$task_num <= 10),],
     #task_list = tasks_df_short[which(tasks_df_short$task_num == 304),],
-    task_list = tasks_df_short,
+    task_list = tasks_df,
     physio_signal = 'eda',
     tbl_sufix_dict = tbl_sufix_dict,
     metric = metric,
     offset = offset,
     con = DBI::dbConnect(RPostgres::Postgres(),
-                         dbname   = config$dbname,
+                         dbname   = 'e4_hera',#config$dbname,
                          host     = 'localhost',
                          port     = config$dbport,
                          user     = config$dbUser,
@@ -211,7 +232,7 @@ earlywarnings::generic_ews(
 
 sync_df_all <- DBI::dbReadTable(
   conn = DBI::dbConnect(RPostgres::Postgres(),
-                        dbname   = 'e4_picu',#config$dbname, 
+                        dbname   = "e4_hera",#config$dbname, 
                         host     = 'localhost',
                         port     = config$dbport,
                         user     = config$dbUser,
@@ -224,30 +245,25 @@ sync_df_all <- DBI::dbReadTable(
     values_from = synch_coef
   )
 
-skimr::skim(sync_df_all)
-
 cardiac_ind_df_all <- DBI::dbReadTable(
   conn = DBI::dbConnect(RPostgres::Postgres(),
-                        dbname   = 'e4_picu',#config$dbname, 
+                        dbname   = "e4_hera",#config$dbname, 
                         host     = 'localhost',
                         port     = config$dbport,
                         user     = config$dbUser,
                         password = config$dbPw),
   name = 'cardiac_ind_summary'
 ) 
-skimr::skim(cardiac_ind_df_all)
 
 eda_ind_df_all <- DBI::dbReadTable(
   conn = DBI::dbConnect(RPostgres::Postgres(),
-                        dbname   = 'e4_picu',#config$dbname, 
+                        dbname   = "e4_hera",#config$dbname, 
                         host     = 'localhost',
                         port     = config$dbport,
                         user     = config$dbUser,
                         password = config$dbPw),
   name = 'eda_ind_summary'
 ) 
-
-skimr::skim(eda_ind_df_all)
 
 ind_df <- full_join(cardiac_ind_df_all, eda_ind_df_all, by = c('task_num','study_member_id')) %>%
   rename('team_or_part_id' = 'study_member_id')
@@ -260,12 +276,22 @@ sync_df_all <- sync_df_all %>%
   select(-contains("_s_e_"))
 all_unob_df <- full_join(ind_df,sync_df_all, by = c('task_num','team_or_part_id')) %>%
   left_join(team_phys, by = 'task_num') %>%
-  rename(e4_id = team_or_part_id)
+  rename(e4_id = team_or_part_id) 
 
-skimr::skim(all_unob_df)
+tasks_df2 <- tasks_df %>%
+  select(-crew_members) %>%
+  pivot_longer(cols = cdr:ms2,values_to = 'e4_id',names_to = 'role') %>% 
+  mutate(e4_id = tolower(e4_id))
 
-
-df_all <- tasks_df %>% mutate(e4_id = tolower(e4_id)) %>% left_join(all_unob_df, by = c('task_num','e4_id')) %>%
+df_all <- tasks_df2  %>% full_join(all_unob_df, by = c('task_num','e4_id')) %>%
   relocate(task_num, e4_id)
-write.csv(df_all,'PICU_df_physio_all_10-30-2023.csv')
+write.csv(df_all,'HERA_df_physio_all_11-6-2023.csv')
 
+
+
+
+################## 
+###### Find dupes, etc.
+#################
+
+cardiac_ind_df_all[duplicated(cardiac_ind_df_all[c('task_num','study_member_id')]),]
