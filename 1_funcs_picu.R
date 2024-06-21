@@ -323,7 +323,8 @@ get_sync_metrics <- function(syncMatrix) {
   if (nrow(syncMatrix) > 2) {
     v_prime <- as.vector(syncMatrix[which(rownames(syncMatrix) != empath),empath])
     M <- syncMatrix[which(rownames(syncMatrix) != empath), which(colnames(syncMatrix) != empath)] %>% select(-c(driver))
-    Q <- matlib::inv(as.matrix(M)) %*% v_prime
+    # Q <- matlib::inv(as.matrix(M)) %*% v_prime
+    Q <- solve(as.matrix(M)) %*% v_prime
     s_e<- v_prime%*%Q
     newRow <- c(
       'team_or_part_id' = 'team',

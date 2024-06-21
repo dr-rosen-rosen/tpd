@@ -7,7 +7,7 @@
 ##############################################################################
 ##############################################################################
 library(tidyverse)
-library(matlib)
+# library(matlib)
 
 ##############
 ##############  Database scripts
@@ -147,8 +147,9 @@ pre_db_tasks_and_metrics <- function(tasks_df, con, overwrite) {
     DBI::dbWriteTable(con, name = 'task_list', value = tasks_df, overwrite=TRUE)
   }
   
-  if(!DBI::dbExistsTable(con,'sync_metrics')) {
-    DBI::dbCreateTable(con,'sync_metrics',sync_df)
+  # if(!DBI::dbExistsTable(con,'sync_metrics')) {
+  if(!DBI::dbExistsTable(con,'sync_metrics_v2')) {
+    DBI::dbCreateTable(con,'sync_metrics_v2',sync_df)
   }
   
   if(!DBI::dbExistsTable(con,'sync_metrics_rw')) {
@@ -206,11 +207,12 @@ pull_e4_data <- function(r, metric,tbl_sufix, con) {
   # version for PICU
   # t <- dplyr::tbl(con,'task_list')
   # role_e4_list <- t %>%
-  #   dplyr::collect() 
+  #   dplyr::collect()
+  
   # # Gets a list of all e4 IDs in the target segment to pull
-  # role_e4_list <- role_e4_list[which(role_e4_list$task_num == r$task_num),] %>%
-  #   dplyr::select(e4_id) %>%
-  #   unlist()
+  role_e4_list <- role_e4_list[which(role_e4_list$task_num == r$task_num),] %>%
+    dplyr::select(e4_id) %>%
+    unlist()
   
   start_time <- r$start_time #lubridate::with_tz(r$start_time, tzone = 'America/Chicago')
   end_time <- start_time + lubridate::minutes(r$duration_min)
@@ -241,7 +243,8 @@ pull_e4_data <- function(r, metric,tbl_sufix, con) {
     print(paste('All data this big... ',ncol(all_data),' by ',nrow(all_data)))
     #print(head(all_data))
     all_data <- all_data %>%
-      mutate(time_stamp = floor_date(time_stamp, unit = "minute")) %>% 
+      # mutate(time_stamp = floor_date(time_stamp, unit = "minute")) %>% 
+      mutate(time_stamp = floor_date(time_stamp, unit = "seconds")) %>% 
       group_by(time_stamp) %>%
       summarise(across(everything(), ~ mean(.x, na.rm = TRUE))) %>%
       ungroup()
@@ -299,7 +302,8 @@ get_sync_metrics <- function(syncMatrix) {
   if (nrow(syncMatrix) > 2) {
     v_prime <- as.vector(syncMatrix[which(rownames(syncMatrix) != empath),empath])
     M <- syncMatrix[which(rownames(syncMatrix) != empath), which(colnames(syncMatrix) != empath)] %>% select(-c(driver))
-    Q <- matlib::inv(as.matrix(M)) %*% v_prime
+    # Q <- matlib::inv(as.matrix(M)) %*% v_prime
+    Q <- solve(as.matrix(M)) %*% v_prime # matlib does not like mac chip; solve does not sound like inversek but is
     s_e<- v_prime%*%Q
     newRow <- c(
       'team_or_part_id' = 'team',
@@ -331,7 +335,7 @@ get_synchronies <- function(task_list, physio_signal, tbl_sufix, metric, offset,
             physio_metric = metric,
             offset = offset
           )
-        DBI::dbAppendTable(con, 'sync_metrics',sync_df)
+        DBI::dbAppendTable(con, 'sync_metrics_v2',sync_df)
       }
       NULL
     }
